@@ -184,7 +184,7 @@ void heater_gpio_task(void *pvParameter)
     gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
     static int loop_i=0;
     while(1) {
-        ESP_LOGD(TAG, "heater> loop %d", loop_i++);
+        ESP_LOGI(TAG, "heater> loop %d", loop_i++);
         if( (heat_request > 0) && (heat_timer > 0) )
         {
             int heat_value = heat_request;
@@ -194,11 +194,13 @@ void heater_gpio_task(void *pvParameter)
             }
             publish_heat_status(heat_value,heat_timer);
             int rest_value = 10 - heat_value;
-            gpio_set_level(HEATER_GPIO, 0);
-            gpio_set_level(BLUE_LED, 1);//inevrted led
-            vTaskDelay(heat_value * 1000 / portTICK_PERIOD_MS);
             gpio_set_level(HEATER_GPIO, 1);
+            gpio_set_level(BLUE_LED, 1);
+            ESP_LOGI(TAG, "heater> Up on");
+            vTaskDelay(heat_value * 1000 / portTICK_PERIOD_MS);
+            gpio_set_level(HEATER_GPIO, 0);
             gpio_set_level(BLUE_LED, 0);
+            ESP_LOGI(TAG, "heater> Down off");
             vTaskDelay(rest_value * 1000 / portTICK_PERIOD_MS);
 
             heat_timer--;
@@ -206,7 +208,8 @@ void heater_gpio_task(void *pvParameter)
         else
         {
             gpio_set_level(HEATER_GPIO, 0);
-            gpio_set_level(BLUE_LED, 1);//inevrted led
+            gpio_set_level(BLUE_LED, 0);
+            ESP_LOGI(TAG, "heater> IDLE Down off");
             static int idle_loop_i = 0;
             if((idle_loop_i++ % 20) ==0)
             {
