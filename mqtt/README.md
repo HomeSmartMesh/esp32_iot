@@ -2,7 +2,6 @@
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
 This example connects to the broker URI selected using `make menuconfig` (using mqtt tcp transport) and as a demonstration subscribes/unsubscribes and send a message on certain topic.
-Note: If the URI equals `FROM_STDIN` then the broker address is read from stdin upon application startup (used for testing)
 
 It uses ESP-MQTT library which implements mqtt client to connect to mqtt broker.
 
