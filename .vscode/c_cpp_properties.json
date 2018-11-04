@@ -5,6 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/mqtt/build/inlcude/**",
+                "${workspaceFolder}/rgb_led/build/inlcude/**",
+                "${workspaceFolder}/rgb_led/main/",
                 "D:\\Projects\\ESP32\\esp-idf\\**"
             ],
             "defines": [

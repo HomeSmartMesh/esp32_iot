@@ -20,6 +20,8 @@
 #include "esp_log.h"
 #include "mqtt_client.h"
 
+#include "WS2812.h"
+
 static const char *TAG = "MQTT_EXAMPLE";
 
 static EventGroupHandle_t wifi_event_group;
@@ -29,7 +31,9 @@ esp_mqtt_client_handle_t g_client;
 bool is_client_ready = false;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
-const gpio_num_t HEATER_GPIO=(gpio_num_t)15;
+const gpio_num_t RGB_GPIO=(gpio_num_t)13;
+
+WS2812 my_rgb(RGB_GPIO,1);
 
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
@@ -144,9 +148,7 @@ void publish_heat_status(int heat,int timer)
 void rgb_gpio_task(void *pvParameter)
 {
     gpio_pad_select_gpio(BLUE_LED);
-    gpio_pad_select_gpio(HEATER_GPIO);
     /* Set the GPIO as a push/pull output */
-    gpio_set_direction(HEATER_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
     while(1) {
         gpio_set_level(BLUE_LED, 1);
@@ -177,4 +179,10 @@ void app_main()
     xTaskCreate(&rgb_gpio_task, "rgb_gpio_task", 2048, NULL, 5, NULL);
 
     mqtt_app_start();
+
+    my_rgb.setPixel(0,25,4,0);    my_rgb.show();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    my_rgb.setPixel(0,4,25,2);    my_rgb.show();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    my_rgb.setPixel(0,10,4,25);    my_rgb.show();
 }
