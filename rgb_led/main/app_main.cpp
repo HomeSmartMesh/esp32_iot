@@ -36,6 +36,19 @@ const gpio_num_t RGB_GPIO=(gpio_num_t)13;
 
 WS2812 my_rgb(RGB_GPIO,1);
 
+void rgb_led_set_color(const char * payload,int len)
+{
+    ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
+    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
+    uint8_t red = root["red"];
+    uint8_t green = root["red"];
+    uint8_t blue = root["blue"];
+    ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
+
+    my_rgb.setPixel(0,red,green,blue);    
+    my_rgb.show();
+}
+
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
     g_client = event->client;//update g_client
@@ -47,6 +60,9 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
             msg_id = esp_mqtt_client_publish(g_client, "esp/rgb led/status", "online", 0, 1, 1);
             ESP_LOGI(TAG, "MQTT> sent publish successful, msg_id=%d", msg_id);
+
+            msg_id = esp_mqtt_client_subscribe(g_client, "esp/rgb led/color", 0);
+            ESP_LOGI(TAG, "MQTT> sent subscribe successful, msg_id=%d", msg_id);
 
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -64,8 +80,17 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             break;
         case MQTT_EVENT_DATA:
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-            printf("DATA=%.*s\r\n", event->data_len, event->data);
+            ESP_LOGD(TAG, "TOPIC length : %d\r\n", event->topic_len);
+            ESP_LOGD(TAG, "DATA length : %d\r\n", event->data_len);
+            if(strncmp(event->topic,"esp/rgb led/color",event->topic_len) == 0)
+            {
+                ESP_LOGI(TAG, "MQTT> color request");
+                rgb_led_set_color(event->data,event->data_len);
+            }
+            else
+            {
+                ESP_LOGI(TAG, "MQTT> unhandled topic %s", event->topic);
+            }
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -181,13 +206,6 @@ void app_main()
 
     mqtt_app_start();
 
-
-    ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
-    char json[] =
-        "{\"sensor\":\"gps\",\"time\":1351824120,\"data\":[48.756080,2.302038]}";
-    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(json);
-    const char* sensor = root["sensor"];
-    ESP_LOGI(TAG, "[APP] Json test sensor = %s..",sensor);
 
     my_rgb.setPixel(0,25,4,0);    my_rgb.show();
     vTaskDelay(500 / portTICK_PERIOD_MS);
