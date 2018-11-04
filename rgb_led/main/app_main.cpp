@@ -41,7 +41,7 @@ void rgb_led_set_color(const char * payload,int len)
     ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
     uint8_t red = root["red"];
-    uint8_t green = root["red"];
+    uint8_t green = root["green"];
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
 
