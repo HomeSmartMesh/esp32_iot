@@ -21,6 +21,7 @@
 #include "mqtt_client.h"
 
 #include "WS2812.h"
+#include "../ArduinoJson/ArduinoJson.hpp"
 
 static const char *TAG = "MQTT_EXAMPLE";
 
@@ -179,6 +180,14 @@ void app_main()
     xTaskCreate(&rgb_gpio_task, "rgb_gpio_task", 2048, NULL, 5, NULL);
 
     mqtt_app_start();
+
+
+    ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
+    char json[] =
+        "{\"sensor\":\"gps\",\"time\":1351824120,\"data\":[48.756080,2.302038]}";
+    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(json);
+    const char* sensor = root["sensor"];
+    ESP_LOGI(TAG, "[APP] Json test sensor = %s..",sensor);
 
     my_rgb.setPixel(0,25,4,0);    my_rgb.show();
     vTaskDelay(500 / portTICK_PERIOD_MS);

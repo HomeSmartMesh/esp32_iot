@@ -7,6 +7,7 @@
                 "${workspaceFolder}/mqtt/build/inlcude/**",
                 "${workspaceFolder}/rgb_led/build/inlcude/**",
                 "${workspaceFolder}/rgb_led/main/",
+                "${workspaceFolder}/rgb_led/ArduinoJson/**",
                 "D:\\Projects\\ESP32\\esp-idf\\**"
             ],
             "defines": [
