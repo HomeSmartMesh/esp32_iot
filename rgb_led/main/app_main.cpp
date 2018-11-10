@@ -17,6 +17,10 @@
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 
+#include "driver/gpio.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
+
 #include "esp_log.h"
 #include "mqtt_client.h"
 
@@ -33,8 +37,44 @@ bool is_client_ready = false;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
 const gpio_num_t RGB_GPIO=(gpio_num_t)13;
+const gpio_num_t V_BAT_GPIO=(gpio_num_t)15;
 
-WS2812 my_rgb(RGB_GPIO,1);
+#define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
+static esp_adc_cal_characteristics_t *adc_chars;
+static const adc1_channel_t channel = ADC1_CHANNEL_5; //GPIO33 for ADC1
+static const adc_atten_t atten = ADC_ATTEN_DB_11;
+static const adc_unit_t unit = ADC_UNIT_1;
+
+WS2812 my_rgb(RGB_GPIO,7);
+
+
+static void print_char_val_type(esp_adc_cal_value_t val_type)
+{
+    if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP) {
+        ESP_LOGI(TAG, "Characterized using Two Point Value\n");
+    } else if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
+        ESP_LOGI(TAG, "Characterized using eFuse Vref\n");
+    } else {
+        ESP_LOGI(TAG, "Characterized using Default Vref\n");
+    }
+}
+
+
+void adc_init()
+{
+    ESP_LOGI(TAG, "ADC Init\n");
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(channel, atten);
+    adc_chars = new esp_adc_cal_characteristics_t;
+    esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, atten, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+    print_char_val_type(val_type);
+}
+
+uint32_t adc_read()
+{
+    uint32_t adc_reading = adc1_get_raw((adc1_channel_t)channel);
+    return esp_adc_cal_raw_to_voltage(adc_reading, adc_chars);
+}
 
 void rgb_led_set_color(const char * payload,int len)
 {
@@ -45,7 +85,10 @@ void rgb_led_set_color(const char * payload,int len)
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
 
-    my_rgb.setPixel(0,red,green,blue);    
+    for(int i=0;i<7;i++)
+    {
+        my_rgb.setPixel(i,red,green,blue);
+    }
     my_rgb.show();
 }
 
@@ -173,6 +216,7 @@ void publish_heat_status(int heat,int timer)
 
 void rgb_gpio_task(void *pvParameter)
 {
+    static int count = 0;
     gpio_pad_select_gpio(BLUE_LED);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
@@ -181,6 +225,11 @@ void rgb_gpio_task(void *pvParameter)
         vTaskDelay(500 / portTICK_PERIOD_MS);
         gpio_set_level(BLUE_LED, 0);
         vTaskDelay(500 / portTICK_PERIOD_MS);
+        if((count++ %5) == 0)
+        {
+            uint32_t v_bat = adc_read();
+            ESP_LOGI(TAG, "ADC measure %d mV", v_bat);
+        }
     }
 }
 
@@ -200,11 +249,12 @@ void app_main()
     esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
     nvs_flash_init();
-    wifi_init();
+    //wifi_init();
+    adc_init();
 
     xTaskCreate(&rgb_gpio_task, "rgb_gpio_task", 2048, NULL, 5, NULL);
 
-    mqtt_app_start();
+    //mqtt_app_start();
 
 
     my_rgb.setPixel(0,25,4,0);    my_rgb.show();
