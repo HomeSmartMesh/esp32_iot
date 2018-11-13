@@ -27,7 +27,15 @@
 #include "WS2812.h"
 #include "../ArduinoJson/ArduinoJson.hpp"
 
-static const char *TAG = "MQTT_EXAMPLE";
+static const char *TAG          = "MQTT_EXAMPLE";
+static const char* TOPIC_LIST   = "esp/rgb led/list";
+static const char* TOPIC_ALL    = "esp/rgb led/all";
+static const char* TOPIC_ONE    = "esp/rgb led/one";
+static const char* TOPIC_STATUS = "esp/rgb led/status";
+static const char* TOPIC_SUB    = "esp/rgb led/#";
+static const char* TOPIC_BATTERY = "esp/rgb led/battery";
+
+
 
 static EventGroupHandle_t wifi_event_group;
 const static int CONNECTED_BIT = BIT0;
@@ -141,10 +149,10 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
         case MQTT_EVENT_CONNECTED:
             is_client_ready = true;
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            msg_id = esp_mqtt_client_publish(g_client, "esp/rgb led/status", "online", 0, 1, 1);
+            msg_id = esp_mqtt_client_publish(g_client, TOPIC_STATUS, "online", 0, 1, 1);
             ESP_LOGI(TAG, "MQTT> sent publish successful, msg_id=%d", msg_id);
 
-            msg_id = esp_mqtt_client_subscribe(g_client, "esp/rgb led/#", 0);
+            msg_id = esp_mqtt_client_subscribe(g_client, TOPIC_SUB, 0);
             ESP_LOGI(TAG, "MQTT> sent subscribe successful, msg_id=%d", msg_id);
 
             break;
@@ -165,17 +173,17 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             printf("MQTT> TOPIC=%.*s\r\n", event->topic_len, event->topic);
             printf("MQTT> DATA=%.*s\r\n", event->data_len, event->data);
-            if(strncmp(event->topic,"esp/rgb led/all",event->topic_len) == 0)
+            if(strncmp(event->topic,TOPIC_ALL,event->topic_len) == 0)
             {
                 rgb_led_set_all(event->data,event->data_len);
                 ESP_LOGI(TAG, "MQTT> rgb all");
             }
-            else if(strncmp(event->topic,"esp/rgb led/list",event->topic_len) == 0)
+            else if(strncmp(event->topic,TOPIC_LIST,event->topic_len) == 0)
             {
                 rgb_led_set_list(event->data,event->data_len);
                 ESP_LOGI(TAG, "MQTT> rgb list");
             }
-            else if(strncmp(event->topic,"esp/rgb led/one",event->topic_len) == 0)
+            else if(strncmp(event->topic,TOPIC_ONE,event->topic_len) == 0)
             {
                 rgb_led_set_one(event->data,event->data_len);
                 ESP_LOGI(TAG, "MQTT> rgb one");
@@ -241,7 +249,7 @@ static void mqtt_app_start(void)
     esp_mqtt_client_config_t mqtt_cfg;
     memset(&mqtt_cfg,0,sizeof(esp_mqtt_client_config_t));
     strcpy(mqtt_uri,CONFIG_BROKER_URL);
-    strcpy(mqtt_lwt_topic,"esp/led rgb/status");
+    strcpy(mqtt_lwt_topic,TOPIC_STATUS);
     strcpy(mqtt_lwt_mesg,"offline");
     mqtt_cfg.uri = mqtt_uri;
     mqtt_cfg.event_handle = mqtt_event_handler;
@@ -260,7 +268,7 @@ void publish_battery_voltage(int v_bat_mVolt)
     {
         char payload[10];
         sprintf(payload,"%d",v_bat_mVolt);
-        esp_mqtt_client_publish(g_client, "esp/rgb led/battery", payload, 0, 1, 0);
+        esp_mqtt_client_publish(g_client, TOPIC_BATTERY, payload, 0, 1, 0);
     }
     else
     {
