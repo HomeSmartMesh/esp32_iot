@@ -28,12 +28,13 @@
 #include "../ArduinoJson/ArduinoJson.hpp"
 
 static const char *TAG          = "MQTT_EXAMPLE";
-static const char* TOPIC_LIST   = "esp/rgb led/list";
-static const char* TOPIC_ALL    = "esp/rgb led/all";
-static const char* TOPIC_ONE    = "esp/rgb led/one";
-static const char* TOPIC_STATUS = "esp/rgb led/status";
-static const char* TOPIC_SUB    = "esp/rgb led/#";
-static const char* TOPIC_BATTERY = "esp/rgb led/battery";
+static const char* TOPIC_ONE    = "esp/led panel/one";
+static const char* TOPIC_ALL    = "esp/led panel/all";
+static const char* TOPIC_LIST   = "esp/led panel/list";
+static const char* TOPIC_GRAD   = "esp/led panel/grad";
+static const char* TOPIC_STATUS = "esp/led panel/status";
+static const char* TOPIC_SUB    = "esp/led panel/#";
+static const char* TOPIC_BATTERY = "esp/led panel/battery";
 
 
 
@@ -45,7 +46,7 @@ bool is_client_ready = false;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
 const gpio_num_t RGB_GPIO=(gpio_num_t)13;
-const gpio_num_t V_BAT_GPIO=(gpio_num_t)15;
+const gpio_num_t V_BAT_GPIO=(gpio_num_t)13;
 
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
 static esp_adc_cal_characteristics_t *adc_chars;
@@ -53,7 +54,8 @@ static const adc1_channel_t channel = ADC1_CHANNEL_5; //GPIO33 for ADC1
 static const adc_atten_t atten = ADC_ATTEN_DB_11;
 static const adc_unit_t unit = ADC_UNIT_1;
 
-static const uint8_t g_nb_led = 7;
+//static const uint8_t g_nb_led = 24;
+static const uint16_t g_nb_led = 256;
 
 WS2812 my_rgb(RGB_GPIO,g_nb_led);
 
@@ -95,7 +97,7 @@ void rgb_led_set_all(const char * payload,int len)
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
 
-    for(int i=0;i<7;i++)
+    for(int i=0;i<g_nb_led;i++)
     {
         my_rgb.setPixel(i,red,green,blue);
     }
@@ -118,7 +120,7 @@ void rgb_led_set_one(const char * payload,int len)
 
 void rgb_led_set_list(const char * payload,int len)
 {
-    ArduinoJson::StaticJsonBuffer<800> jsonBuffer;
+    ArduinoJson::StaticJsonBuffer<4096> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
     if (!root.success()) 
     {
@@ -139,6 +141,39 @@ void rgb_led_set_list(const char * payload,int len)
     my_rgb.show();
 }
 
+void rgb_led_set_grad(const char * payload,int len)
+{
+    ArduinoJson::StaticJsonBuffer<600> jsonBuffer;
+    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
+    if (!root.success()) 
+    {
+        ESP_LOGE(TAG, "MQTT-JSON> Parsing error");
+        return;
+    }
+    int led_start = root["led_start"];
+    ESP_LOGI(TAG, "MQTT-JSON> led_start = %d",led_start);
+    int nb_leds = root["nb_leds"];
+    ESP_LOGI(TAG, "MQTT-JSON> nb_leds = %d",nb_leds);
+    uint8_t start_red   = root["col_start"]["r"];
+    uint8_t start_green = root["col_start"]["g"];
+    uint8_t start_blue  = root["col_start"]["b"];
+    uint8_t stop_red    = root["col_stop"]["r"];
+    uint8_t stop_green  = root["col_stop"]["g"];
+    uint8_t stop_blue   = root["col_stop"]["b"];
+    for(int i=led_start;i<(led_start + nb_leds);i++)
+    {
+        float coeff = (i-led_start);
+        coeff/=nb_leds;
+        float coeffm1 = 1 - coeff;
+        uint8_t red     = start_red   *coeff  + stop_red  *coeffm1;
+        uint8_t green   = start_green *coeff  + stop_green*coeffm1;
+        uint8_t blue    = start_blue  *coeff  + stop_blue *coeffm1;
+        my_rgb.setPixel(i,  red, green, blue);
+        //ESP_LOGI(TAG, "MQTT-JSON> (%d)(%u , %u , %u)",i,red, green, blue);
+    }
+    my_rgb.show();
+}
+
 
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
@@ -149,7 +184,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
         case MQTT_EVENT_CONNECTED:
             is_client_ready = true;
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            msg_id = esp_mqtt_client_publish(g_client, TOPIC_STATUS, "online", 0, 1, 1);
+            msg_id = esp_mqtt_client_publish(g_client, TOPIC_STATUS, "online", 0, 1, 0);
             ESP_LOGI(TAG, "MQTT> sent publish successful, msg_id=%d", msg_id);
 
             msg_id = esp_mqtt_client_subscribe(g_client, TOPIC_SUB, 0);
@@ -176,17 +211,18 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             if(strncmp(event->topic,TOPIC_ALL,event->topic_len) == 0)
             {
                 rgb_led_set_all(event->data,event->data_len);
-                ESP_LOGI(TAG, "MQTT> rgb all");
             }
             else if(strncmp(event->topic,TOPIC_LIST,event->topic_len) == 0)
             {
                 rgb_led_set_list(event->data,event->data_len);
-                ESP_LOGI(TAG, "MQTT> rgb list");
             }
             else if(strncmp(event->topic,TOPIC_ONE,event->topic_len) == 0)
             {
                 rgb_led_set_one(event->data,event->data_len);
-                ESP_LOGI(TAG, "MQTT> rgb one");
+            }
+            else if(strncmp(event->topic,TOPIC_GRAD,event->topic_len) == 0)
+            {
+                rgb_led_set_grad(event->data,event->data_len);
             }
             else
             {
@@ -278,7 +314,9 @@ void publish_battery_voltage(int v_bat_mVolt)
 
 void rgb_gpio_task(void *pvParameter)
 {
-    static int count = 0;
+    #if MEASURE_BATTERY
+        static int count = 0;
+    #endif
     gpio_pad_select_gpio(BLUE_LED);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
@@ -287,12 +325,14 @@ void rgb_gpio_task(void *pvParameter)
         vTaskDelay(10 / portTICK_PERIOD_MS);
         gpio_set_level(BLUE_LED, 0);
         vTaskDelay(990 / portTICK_PERIOD_MS);
-        if((count++ %(10*60)) == 0)
-        {
-            uint32_t v_bat = adc_read();
-            publish_battery_voltage(v_bat);
-            ESP_LOGI(TAG, "v Bat measure %d mV", v_bat);
-        }
+        #if MEASURE_BATTERY
+            if((count++ %(10*60)) == 0)
+            {
+                uint32_t v_bat = adc_read();
+                publish_battery_voltage(v_bat);
+                ESP_LOGI(TAG, "v Bat measure %d mV", v_bat);
+            }
+        #endif
     }
 }
 
@@ -321,6 +361,10 @@ void app_main()
     esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
     esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
+    show_pixels(0,1,0);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    show_pixels(0,0,0);
+
     nvs_flash_init();
     wifi_init();
     adc_init();
@@ -329,9 +373,11 @@ void app_main()
 
     mqtt_app_start();
 
-    show_pixels(25,4,0);
+    show_pixels(1,0,0);
     vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(4,25,2);
+    show_pixels(0,1,0);
     vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(2,4,20);
+    show_pixels(0,0,1);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    show_pixels(0,0,0);
 }

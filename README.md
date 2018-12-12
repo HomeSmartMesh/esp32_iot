@@ -29,3 +29,6 @@ list with a color for every led
 570 bytes buffer required instead of 1080 for multiple r,g,b json objects
 
     mosquitto_pub -t 'esp/rgb led/list' -m '{"leds":[10,2,3,0,2,30,10,2,3,0,2,30,10,2,3,0,2,30,20,3,15]}'
+## grad
+gradient of colors
+    mosquitto_pub -t 'esp/led panel/grad' -m '{"led_start":0, "nb_leds":10, "col_start":{"r":0,"g":10,"b":0}, "col_stop":{"r":0,"g":0,"b":10}}'
