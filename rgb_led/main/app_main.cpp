@@ -6,6 +6,7 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_event_loop.h"
+#include "esp_timer.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,14 +28,16 @@
 #include "WS2812.h"
 #include "../ArduinoJson/ArduinoJson.hpp"
 
-static const char *TAG          = "MQTT_EXAMPLE";
-static const char* TOPIC_ONE    = "esp/led panel/one";
-static const char* TOPIC_ALL    = "esp/led panel/all";
-static const char* TOPIC_LIST   = "esp/led panel/list";
-static const char* TOPIC_GRAD   = "esp/led panel/grad";
-static const char* TOPIC_STATUS = "esp/led panel/status";
-static const char* TOPIC_SUB    = "esp/led panel/#";
-static const char* TOPIC_BATTERY = "esp/led panel/battery";
+static const char *TAG                  = "MQTT_EXAMPLE";
+static const char* TOPIC_ONE            = "esp/curvy/pixels/one";
+static const char* TOPIC_ALL            = "esp/curvy/pixels/all";
+static const char* TOPIC_LIST           = "esp/curvy/pixels/list";
+static const char* TOPIC_GRAD           = "esp/curvy/pixels/grad";
+static const char* TOPIC_LINES_GRAD     = "esp/curvy/lines/grad";
+static const char* TOPIC_PANEL          = "esp/curvy/panel";
+static const char* TOPIC_STATUS         = "esp/curvy/status";
+static const char* TOPIC_SUB            = "esp/curvy/#";
+static const char* TOPIC_BATTERY        = "esp/curvy/battery";
 
 
 
@@ -54,10 +57,41 @@ static const adc1_channel_t channel = ADC1_CHANNEL_5; //GPIO33 for ADC1
 static const adc_atten_t atten = ADC_ATTEN_DB_11;
 static const adc_unit_t unit = ADC_UNIT_1;
 
+struct grad_t{
+    uint8_t start_red   ;
+    uint8_t start_green ;
+    uint8_t start_blue  ;
+    uint8_t stop_red    ;
+    uint8_t stop_green  ;
+    uint8_t stop_blue   ;
+};
+
+
 //static const uint8_t g_nb_led = 24;
 static const uint16_t g_nb_led = 256;
 
 WS2812 my_rgb(RGB_GPIO,g_nb_led);
+
+void timestamp_init()
+{
+    esp_timer_create_args_t oneshot_timer_args;
+    esp_timer_handle_t oneshot_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&oneshot_timer_args, &oneshot_timer));
+    ESP_ERROR_CHECK(esp_timer_start_once(oneshot_timer, 31536000000000ull));//one year of microseconds
+    ESP_LOGI(TAG, "timer> %lld us",esp_timer_get_time());
+}
+
+int64_t g_time;
+
+void timestamp_start()
+{
+    g_time = esp_timer_get_time();
+}
+
+int64_t timestamp_stop()
+{
+    return (esp_timer_get_time() - g_time);
+}
 
 
 static void print_char_val_type(esp_adc_cal_value_t val_type)
@@ -71,24 +105,38 @@ static void print_char_val_type(esp_adc_cal_value_t val_type)
     }
 }
 
-
-void adc_init()
+void leds_set_all(uint8_t red,uint8_t green,uint8_t blue, bool show = true)
 {
-    ESP_LOGI(TAG, "ADC Init\n");
-    adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(channel, atten);
-    adc_chars = new esp_adc_cal_characteristics_t;
-    esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, atten, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
-    print_char_val_type(val_type);
+    for(int i=0;i<g_nb_led;i++)
+    {
+        my_rgb.setPixel(i,red,green,blue);
+    }
+    if(show)
+    {
+        my_rgb.show();
+    }
 }
 
-uint32_t adc_read()
+void leds_set_gradient(int led_start,int nb_leds,grad_t grad, bool show = true)
 {
-    uint32_t adc_reading = adc1_get_raw((adc1_channel_t)channel);
-    return esp_adc_cal_raw_to_voltage(adc_reading, adc_chars);
+    for(int i=led_start;i<(led_start + nb_leds);i++)
+    {
+        float coeff = (i-led_start);
+        coeff/=nb_leds;
+        float coeffm1 = 1 - coeff;
+        uint8_t red     = grad.start_red   *coeff  + grad.stop_red  *coeffm1;
+        uint8_t green   = grad.start_green *coeff  + grad.stop_green*coeffm1;
+        uint8_t blue    = grad.start_blue  *coeff  + grad.stop_blue *coeffm1;
+        my_rgb.setPixel(i,  red, green, blue);
+        //ESP_LOGI(TAG, "MQTT-JSON> (%d)(%u , %u , %u)",i,red, green, blue);
+    }
+    if(show)
+    {
+        my_rgb.show();
+    }
 }
 
-void rgb_led_set_all(const char * payload,int len)
+void json_led_set_all(const char * payload,int len)
 {
     ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
@@ -96,15 +144,10 @@ void rgb_led_set_all(const char * payload,int len)
     uint8_t green = root["green"];
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
-
-    for(int i=0;i<g_nb_led;i++)
-    {
-        my_rgb.setPixel(i,red,green,blue);
-    }
-    my_rgb.show();
+    leds_set_all(red,green,blue);
 }
 
-void rgb_led_set_one(const char * payload,int len)
+void json_led_set_one(const char * payload,int len)
 {
     ArduinoJson::StaticJsonBuffer<200> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
@@ -118,7 +161,7 @@ void rgb_led_set_one(const char * payload,int len)
     my_rgb.show();
 }
 
-void rgb_led_set_list(const char * payload,int len)
+void json_led_set_list(const char * payload,int len)
 {
     ArduinoJson::StaticJsonBuffer<4096> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
@@ -141,7 +184,7 @@ void rgb_led_set_list(const char * payload,int len)
     my_rgb.show();
 }
 
-void rgb_led_set_grad(const char * payload,int len)
+void json_led_set_grad(const char * payload,int len)
 {
     ArduinoJson::StaticJsonBuffer<600> jsonBuffer;
     ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
@@ -154,24 +197,64 @@ void rgb_led_set_grad(const char * payload,int len)
     ESP_LOGI(TAG, "MQTT-JSON> led_start = %d",led_start);
     int nb_leds = root["nb_leds"];
     ESP_LOGI(TAG, "MQTT-JSON> nb_leds = %d",nb_leds);
-    uint8_t start_red   = root["col_start"]["r"];
-    uint8_t start_green = root["col_start"]["g"];
-    uint8_t start_blue  = root["col_start"]["b"];
-    uint8_t stop_red    = root["col_stop"]["r"];
-    uint8_t stop_green  = root["col_stop"]["g"];
-    uint8_t stop_blue   = root["col_stop"]["b"];
-    for(int i=led_start;i<(led_start + nb_leds);i++)
+    grad_t grad;
+    grad.start_red   = root["col_start"]["r"];
+    grad.start_green = root["col_start"]["g"];
+    grad.start_blue  = root["col_start"]["b"];
+    grad.stop_red    = root["col_stop"]["r"];
+    grad.stop_green  = root["col_stop"]["g"];
+    grad.stop_blue   = root["col_stop"]["b"];
+
+    leds_set_gradient(led_start, nb_leds, grad);
+}
+
+void json_led_set_panel(const char * payload,int len)
+{
+    ArduinoJson::StaticJsonBuffer<600> jsonBuffer;
+    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
+    if (!root.success()) 
     {
-        float coeff = (i-led_start);
-        coeff/=nb_leds;
-        float coeffm1 = 1 - coeff;
-        uint8_t red     = start_red   *coeff  + stop_red  *coeffm1;
-        uint8_t green   = start_green *coeff  + stop_green*coeffm1;
-        uint8_t blue    = start_blue  *coeff  + stop_blue *coeffm1;
-        my_rgb.setPixel(i,  red, green, blue);
-        //ESP_LOGI(TAG, "MQTT-JSON> (%d)(%u , %u , %u)",i,red, green, blue);
+        ESP_LOGE(TAG, "MQTT-JSON> Parsing error");
+        return;
     }
-    my_rgb.show();
+
+    std::string action = root["action"].as<std::string>();
+    if(action.compare("off") == 0)
+    {
+        timestamp_start();
+        leds_set_all(0,0,0,false);
+        int64_t t_set_all = timestamp_stop();
+        timestamp_start();
+        my_rgb.show();
+        int64_t t_show = timestamp_stop();
+        ESP_LOGI(TAG, "MQTT-JSON> Panel Off");
+        ESP_LOGI(TAG, "MQTT-JSON> time to set all: %lld us ; time to show: %lld us", t_set_all, t_show);
+    }
+    else if(action.compare("flash") == 0)
+    {
+        leds_set_all(0,0,0);
+        int duration_ms = root["duration_ms"];
+        uint8_t red = root["red"];
+        uint8_t green = root["green"];
+        uint8_t blue = root["blue"];
+
+        ESP_LOGI(TAG, "MQTT-JSON> Panel Off");
+    }
+}
+
+typedef void (*t_mqtt_handler)(const char *,int);
+
+bool match_and_call(esp_mqtt_event_handle_t &event,const char* topic,t_mqtt_handler func)
+{
+    if(strncmp(event->topic,topic,event->topic_len) == 0)
+    {
+        (*func)(event->data,event->data_len);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 
@@ -208,22 +291,12 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG, "MQTT_EVENT_DATA");
             printf("MQTT> TOPIC=%.*s\r\n", event->topic_len, event->topic);
             printf("MQTT> DATA=%.*s\r\n", event->data_len, event->data);
-            if(strncmp(event->topic,TOPIC_ALL,event->topic_len) == 0)
-            {
-                rgb_led_set_all(event->data,event->data_len);
-            }
-            else if(strncmp(event->topic,TOPIC_LIST,event->topic_len) == 0)
-            {
-                rgb_led_set_list(event->data,event->data_len);
-            }
-            else if(strncmp(event->topic,TOPIC_ONE,event->topic_len) == 0)
-            {
-                rgb_led_set_one(event->data,event->data_len);
-            }
-            else if(strncmp(event->topic,TOPIC_GRAD,event->topic_len) == 0)
-            {
-                rgb_led_set_grad(event->data,event->data_len);
-            }
+
+            if      (match_and_call(event,TOPIC_ALL,  &json_led_set_all))     {}
+            else if (match_and_call(event,TOPIC_LIST, &json_led_set_list))    {}
+            else if (match_and_call(event,TOPIC_ONE,  &json_led_set_one))     {}
+            else if (match_and_call(event,TOPIC_GRAD, &json_led_set_grad))    {}
+            else if (match_and_call(event,TOPIC_PANEL,&json_led_set_panel))   {}
             else
             {
                 ESP_LOGI(TAG, "MQTT> unhandled topic len=%d", event->topic_len);
@@ -298,20 +371,6 @@ static void mqtt_app_start(void)
     esp_mqtt_client_start(g_client);
 }
 
-void publish_battery_voltage(int v_bat_mVolt)
-{
-    if(is_client_ready)
-    {
-        char payload[10];
-        sprintf(payload,"%d",v_bat_mVolt);
-        esp_mqtt_client_publish(g_client, TOPIC_BATTERY, payload, 0, 1, 0);
-    }
-    else
-    {
-        ESP_LOGW(TAG, "mqtt client not ready");
-    }
-}
-
 void rgb_gpio_task(void *pvParameter)
 {
     #if MEASURE_BATTERY
@@ -325,14 +384,6 @@ void rgb_gpio_task(void *pvParameter)
         vTaskDelay(10 / portTICK_PERIOD_MS);
         gpio_set_level(BLUE_LED, 0);
         vTaskDelay(990 / portTICK_PERIOD_MS);
-        #if MEASURE_BATTERY
-            if((count++ %(10*60)) == 0)
-            {
-                uint32_t v_bat = adc_read();
-                publish_battery_voltage(v_bat);
-                ESP_LOGI(TAG, "v Bat measure %d mV", v_bat);
-            }
-        #endif
     }
 }
 
@@ -347,10 +398,12 @@ void show_pixels(uint8_t r,uint8_t g,uint8_t b)
 
 
 extern "C" void app_main();
-
 void app_main()
 {
     ESP_LOGI(TAG, "[APP] Startup..");
+
+    timestamp_init();
+
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
@@ -367,7 +420,6 @@ void app_main()
 
     nvs_flash_init();
     wifi_init();
-    adc_init();
 
     xTaskCreate(&rgb_gpio_task, "rgb_gpio_task", 2048, NULL, 5, NULL);
 
