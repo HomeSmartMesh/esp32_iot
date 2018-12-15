@@ -38,7 +38,6 @@ static const char* TOPIC_LINES_GRAD     = "esp/curvy/lines/grad";
 static const char* TOPIC_PANEL          = "esp/curvy/panel";
 static const char* TOPIC_STATUS         = "esp/curvy/status";
 static const char* TOPIC_SUB            = "esp/curvy/#";
-static const char* TOPIC_BATTERY        = "esp/curvy/battery";
 
 
 
@@ -50,13 +49,6 @@ bool is_client_ready = false;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
 const gpio_num_t RGB_GPIO=(gpio_num_t)13;
-const gpio_num_t V_BAT_GPIO=(gpio_num_t)13;
-
-#define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
-static esp_adc_cal_characteristics_t *adc_chars;
-static const adc1_channel_t channel = ADC1_CHANNEL_5; //GPIO33 for ADC1
-static const adc_atten_t atten = ADC_ATTEN_DB_11;
-static const adc_unit_t unit = ADC_UNIT_1;
 
 struct grad_t{
     uint8_t start_red   ;
@@ -69,8 +61,12 @@ struct grad_t{
 
 struct action_flash_t{
     pixel_t color;
-    int     progress_ms;
-    int     duration_ms;
+};
+
+struct action_wave_t{
+    pixel_t color;
+    int     length;
+    float   freq;
 };
 
 enum class action_type_t { flash, wave, wavelet };
@@ -80,17 +76,23 @@ class action_t{
         bool run(WS2812* leds,int delay_ms);
     public:
         std::string name;
+        int     progress_ms;
+        int     duration_ms;
         action_type_t a_type;
         union{
             action_flash_t flash;
+            action_wave_t wave;
         };
 };
 
 class animation_t{
     public:
-        animation_t(WS2812* v_leds):leds(v_leds){}
+        animation_t(WS2812* v_leds):enabled(false),leds(v_leds){}
         void run();
-        void add_flash(action_flash_t &v_flash);
+        void kill();
+        void add_flash(action_flash_t &v_flash,int v_duration_ms);
+        void add_wave(action_wave_t &v_wave,int v_duration_ms);
+        void add_wavelet(action_wave_t &v_wavelet,int v_duration_ms);
     public:
         bool enabled;
         WS2812* leds;
@@ -106,7 +108,7 @@ float flash_progress_to_intensity(int progress_ms,int duration_ms)
     {
         pos = 1 - pos;
     }
-    return pos;
+    return 2*pos;//so that 0.5 => 1
 }
 
 bool action_t::run(WS2812* leds,int delay_ms)
@@ -116,40 +118,73 @@ bool action_t::run(WS2812* leds,int delay_ms)
     {
         case action_type_t::flash :
             {
-                float intensity = flash_progress_to_intensity(flash.progress_ms,flash.duration_ms);
-                my_rgb.add_to_all(flash.color.red * intensity, flash.color.green * intensity, flash.color.blue * intensity);
-                flash.progress_ms+=delay_ms;
-                if(flash.progress_ms > flash.duration_ms)
-                {
-                    done = true;
-                }
+                float intensity = flash_progress_to_intensity(progress_ms,duration_ms);
+                uint8_t r = flash.color.red * intensity;
+                uint8_t g = flash.color.green * intensity;
+                uint8_t b = flash.color.blue * intensity;
+                leds->add_const(r, g, b);
+                ESP_LOGD(TAG, "ANIMATION> Flash intensity %0.2f: color (%u,%u,%u)",intensity,r,g,b);
+            }
+        break;
+        case action_type_t::wave :
+            {
+                float t = (float)progress_ms/1000;//time in seconds since start of animation
+                leds->add_wave(wave.color, t, wave.freq, wave.length);
+                ESP_LOGD(TAG, "ANIMATION> wave time %0.2f",t);
             }
         break;
         default:
         break;
     }
+
+    ESP_LOGD(TAG, "ANIMATION> progress : %d ",progress_ms);
+    progress_ms+=delay_ms;
+    if(progress_ms > duration_ms)
+    {
+        done = true;
+        ESP_LOGI(TAG, "ANIMATION> %s done",name.c_str());
+    }
+
     return done;
 }
 
-void animation_t::add_flash(action_flash_t &v_flash)
+void animation_t::add_flash(action_flash_t &v_flash,int v_duration_ms)
 {
     action_t flash_action;
     flash_action.a_type = action_type_t::flash;
+    flash_action.progress_ms = 0;
+    flash_action.duration_ms = v_duration_ms;
     flash_action.flash = v_flash;
     actions.push_back(flash_action);
+    enabled = true;
+}
+
+void animation_t::add_wave(action_wave_t &v_wave,int v_duration_ms)
+{
+    action_t wave_action;
+    wave_action.a_type = action_type_t::wave;
+    wave_action.progress_ms = 0;
+    wave_action.duration_ms = v_duration_ms;
+    wave_action.wave = v_wave;
+    actions.push_back(wave_action);
+    enabled = true;
+}
+
+void animation_t::kill()
+{
+    actions.clear();
+    enabled = false;
 }
 
 void animation_t::run()
 {
+    if(!enabled)
+        return;
     leds->clear();
-    for(action_t&action : actions )
-    {
-        action.run(leds,20);
-    }
     std::list<action_t>::iterator action = actions.begin();
     while (action != actions.end())
     {
-        bool isDone = action->run(leds,20);
+        bool isDone = action->run(leds,20);//the period since last run is 20 ms
         if (isDone)
         {
             actions.erase(action++);
@@ -159,6 +194,12 @@ void animation_t::run()
             ++action;
         }
     }
+    if(actions.empty())
+    {
+        enabled = false;
+        leds->clear();
+    }
+    leds->show();
 }
 
 
@@ -167,7 +208,7 @@ static void animation_timer_callback(void* arg);
 //static const uint8_t g_nb_led = 24;
 static const uint16_t g_nb_led = 256;
 
-WS2812 my_rgb(RGB_GPIO,g_nb_led);
+WS2812 my_rgb(RGB_GPIO,g_nb_led,8);
 
 animation_t animation(&my_rgb);
 
@@ -179,7 +220,7 @@ void timers_init()
     esp_timer_handle_t oneshot_timer;
     ESP_ERROR_CHECK(esp_timer_create(&oneshot_timer_args, &oneshot_timer));
     ESP_ERROR_CHECK(esp_timer_start_once(oneshot_timer, 31536000000000ull));//one year of microseconds
-    ESP_LOGI(TAG, "timer> %lld us",esp_timer_get_time());
+    ESP_LOGI(TAG, "timer> time since startup %lld ms",esp_timer_get_time()/1000);
 
     esp_timer_create_args_t periodic_timer_args;
     periodic_timer_args.callback = &animation_timer_callback;
@@ -328,6 +369,7 @@ void json_led_set_panel(const char * payload,int len)
     std::string action = root["action"].as<std::string>();
     if(action.compare("off") == 0)
     {
+        animation.kill();
         timestamp_start();
         leds_set_all(0,0,0,false);
         int64_t t_set_all = timestamp_stop();
@@ -340,12 +382,24 @@ void json_led_set_panel(const char * payload,int len)
     else if(action.compare("flash") == 0)
     {
         action_flash_t flash;
-        flash.duration_ms = root["duration_ms"];
-        flash.color.red = root["red"];
-        flash.color.green = root["green"];
-        flash.color.blue = root["blue"];
-        animation.add_flash(flash);
-        ESP_LOGI(TAG, "MQTT-JSON> Panel Off");
+        int duration_ms = root["duration_ms"];
+        flash.color.red = root["r"];
+        flash.color.green = root["g"];
+        flash.color.blue = root["b"];
+        animation.add_flash(flash,root["duration_ms"]);
+        ESP_LOGI(TAG, "MQTT-JSON> Added Flash (%u,%u,%u) for %d ms",flash.color.red,flash.color.green,flash.color.blue,duration_ms);
+    }
+    else if(action.compare("wave") == 0)
+    {
+        action_wave_t wave;
+        int duration_ms = root["duration_ms"];
+        wave.length = root["length"];
+        wave.freq   = root["freq"];
+        wave.color.red = root["r"];
+        wave.color.green = root["g"];
+        wave.color.blue = root["b"];
+        animation.add_wave(wave,duration_ms);
+        ESP_LOGI(TAG, "MQTT-JSON> Added Wave (%u,%u,%u) for %d ms",wave.color.red,wave.color.green,wave.color.blue,duration_ms);
     }
 }
 
@@ -478,43 +532,26 @@ static void mqtt_app_start(void)
     esp_mqtt_client_start(g_client);
 }
 
-void rgb_gpio_task(void *pvParameter)
-{
-    #if MEASURE_BATTERY
-        static int count = 0;
-    #endif
-    gpio_pad_select_gpio(BLUE_LED);
-    /* Set the GPIO as a push/pull output */
-    gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
-    while(1) {
-        gpio_set_level(BLUE_LED, 1);
-        delay_ms(10);
-        gpio_set_level(BLUE_LED, 0);
-        delay_ms(990);
-    }
-}
-
-
 extern "C" void app_main();
 void app_main()
 {
     ESP_LOGI(TAG, "[APP] Startup..");
 
-    timers_init();
-
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
     esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("MQTT_EXAMPLE", ESP_LOG_INFO);
 
     leds_set_all(0,1,0);
     delay_ms(500);
     leds_set_all(0,0,0);
 
     nvs_flash_init();
+    
+    timestamp_start();
     wifi_init();
-
-    xTaskCreate(&rgb_gpio_task, "rgb_gpio_task", 2048, NULL, 5, NULL);
+    ESP_LOGI(TAG, "[APP] wifi_init in %lld ms", timestamp_stop()/1000);
 
     mqtt_app_start();
 
@@ -525,4 +562,7 @@ void app_main()
     leds_set_all(0,0,1);
     delay_ms(500);
     leds_set_all(0,0,0);
+
+    timers_init();
+
 }

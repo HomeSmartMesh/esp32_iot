@@ -48,11 +48,12 @@ typedef struct {
  */
 class WS2812 {
 public:
-	WS2812(gpio_num_t gpioNum, uint16_t pixelCount, int channel = RMT_CHANNEL_0);
+	WS2812(gpio_num_t gpioNum, uint16_t pixelCount, uint16_t lineCount,  int channel = RMT_CHANNEL_0);
 	void show();
 	void setColorOrder(char* order);
 	void setPixel(uint16_t index, uint8_t red, uint8_t green, uint8_t blue);
-	void add_to_all(uint8_t red, uint8_t green, uint8_t blue);
+	void add_const(uint8_t red, uint8_t green, uint8_t blue);
+	void add_wave(pixel_t color, float t, float freq, int length);
 	void setPixel(uint16_t index, pixel_t pixel);
 	void setPixel(uint16_t index, uint32_t pixel);
 	void setHSBPixel(uint16_t index, uint16_t hue, uint8_t saturation, uint8_t brightness);
@@ -62,6 +63,7 @@ public:
 private:
 	char*          colorOrder;
 	uint16_t       pixelCount;
+	uint16_t 	   lineCount;
 	rmt_channel_t  channel;
 	rmt_item32_t*  items;
 	pixel_t*       pixels;

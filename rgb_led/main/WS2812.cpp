@@ -10,6 +10,10 @@
 #include "sdkconfig.h"
 #include "WS2812.h"
 
+#include <math.h> 
+
+#define PI_x2 6.283185307179586476925286766559
+
 #if CONFIG_CXX_EXCEPTIONS != 1
 #error "C++ exception handling must be enabled within make menuconfig. See Compiler Options > Enable C++ Exceptions."
 #endif
@@ -104,7 +108,7 @@ static uint8_t getChannelValueByType(char type, pixel_t pixel) {
  * @param [in] pixelCount The number of pixels in the strand.
  * @param [in] channel The RMT channel to use.  Defaults to RMT_CHANNEL_0.
  */
-WS2812::WS2812(gpio_num_t dinPin, uint16_t pixelCount, int channel) {
+WS2812::WS2812(gpio_num_t dinPin, uint16_t pixelCount, uint16_t lineCount, int channel) {
 	/*
 	if (pixelCount == 0) {
 		throw std::range_error("Pixel count was 0");
@@ -113,6 +117,7 @@ WS2812::WS2812(gpio_num_t dinPin, uint16_t pixelCount, int channel) {
 	assert(ESP32CPP::GPIO::inRange(dinPin));
 
 	this->pixelCount = pixelCount;
+	this->lineCount = lineCount;
 	this->channel    = (rmt_channel_t) channel;
 
 	// The number of items is number of pixels * 24 bits per pixel + the terminator.
@@ -214,14 +219,49 @@ void WS2812::setPixel(uint16_t index, uint8_t red, uint8_t green, uint8_t blue) 
 	this->pixels[index].blue  = blue;
 } // setPixel
 
+void add_sat(uint8_t &v1, uint8_t &v2)
+{
+	uint16_t v1_16 = v1;
+	uint16_t v2_16 = v2;
+	if((v1_16+v2_16) < 256)
+	{
+		v1 = v1+v2;
+	}
+	else
+	{
+		v1 = 255;
+	}
+}
 
-void WS2812::add_to_all(uint8_t red, uint8_t green, uint8_t blue)
+void WS2812::add_const(uint8_t red, uint8_t green, uint8_t blue)
 {
 	for (uint16_t i = 0; i < this->pixelCount; i++) 
 	{
-		this->pixels[i].red   += red;
-		this->pixels[i].green += green;
-		this->pixels[i].blue  += blue;
+		add_sat(this->pixels[i].red  ,red);
+		add_sat(this->pixels[i].green,green);
+		add_sat(this->pixels[i].blue ,blue);
+	}
+}
+
+void WS2812::add_wave(pixel_t color, float t, float freq, int length)
+{
+	uint16_t nb_lines = this->pixelCount / this->lineCount;
+	for (uint16_t line = 0; line < nb_lines; line++) 
+	{
+		float x =  (float)line / (float)length;
+		float intensity = (1+sin(	PI_x2 * 
+									( x - (freq * t) )
+								)
+							)/2;
+		uint8_t r = color.red 	* intensity;
+		uint8_t g = color.green * intensity;
+		uint8_t b = color.blue 	* intensity;
+		for(uint16_t i=0; i<this->lineCount; i++)
+		{
+			add_sat(this->pixels[line*8 + i].red,r);
+			add_sat(this->pixels[line*8 + i].green,g);
+			add_sat(this->pixels[line*8 + i].blue ,b);
+		}
 	}
 }
 

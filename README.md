@@ -34,3 +34,23 @@ gradient of colors
     mosquitto_pub -t 'esp/curvy/pixels/grad' -m '{"led_start":0, "nb_leds":10, "col_start":{"r":0,"g":10,"b":0}, "col_stop":{"r":0,"g":0,"b":10}}'
 
     mosquitto_pub -t 'esp/curvy/pixels/grad' -m '{"led_start":0, "nb_leds":256, "col_start":{"r":0,"g":10,"b":0}, "col_stop":{"r":0,"g":0,"b":10}}'
+
+## panel
+### flash
+    mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"flash", "duration_ms":1000,"r":0,"g":10,"b":0}'
+
+### wave
+    mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":1000,"length":32,"r":0,"g":10,"b":0}'
+
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"length":16,"r":0,"g":6,"b":0}'
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":2000,"length":32,"r":0,"g":0,"b":6}'
+
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":1000,"freq":1,"length":32,"r":0,"g":0,"b":6}'
+
+
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":2000,"freq":1,"length":16,"r":0,"g":8,"b":0}'
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":2000,"freq":-1,"length":8,"r":0,"g":0,"b":6}'
+
+### higher waves
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"freq":1,"length":32,"r":0,"g":180,"b":0}'
+mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"freq":-1,"length":32,"r":0,"g":0,"b":255}'
