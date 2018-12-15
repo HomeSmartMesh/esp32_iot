@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <list>
 #include "esp_wifi.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -66,19 +67,126 @@ struct grad_t{
     uint8_t stop_blue   ;
 };
 
+struct action_flash_t{
+    pixel_t color;
+    int     progress_ms;
+    int     duration_ms;
+};
+
+enum class action_type_t { flash, wave, wavelet };
+
+class action_t{
+    public:
+        bool run(WS2812* leds,int delay_ms);
+    public:
+        std::string name;
+        action_type_t a_type;
+        union{
+            action_flash_t flash;
+        };
+};
+
+class animation_t{
+    public:
+        animation_t(WS2812* v_leds):leds(v_leds){}
+        void run();
+        void add_flash(action_flash_t &v_flash);
+    public:
+        bool enabled;
+        WS2812* leds;
+        std::list<action_t> actions;
+
+};
+
+float flash_progress_to_intensity(int progress_ms,int duration_ms)
+{
+    float pos = progress_ms;
+    pos /= duration_ms;//div / 0 exception
+    if(pos > 0.5)
+    {
+        pos = 1 - pos;
+    }
+    return pos;
+}
+
+bool action_t::run(WS2812* leds,int delay_ms)
+{
+    bool done = false;
+    switch(a_type)
+    {
+        case action_type_t::flash :
+            {
+                float intensity = flash_progress_to_intensity(flash.progress_ms,flash.duration_ms);
+                my_rgb.add_to_all(flash.color.red * intensity, flash.color.green * intensity, flash.color.blue * intensity);
+                flash.progress_ms+=delay_ms;
+                if(flash.progress_ms > flash.duration_ms)
+                {
+                    done = true;
+                }
+            }
+        break;
+        default:
+        break;
+    }
+    return done;
+}
+
+void animation_t::add_flash(action_flash_t &v_flash)
+{
+    action_t flash_action;
+    flash_action.a_type = action_type_t::flash;
+    flash_action.flash = v_flash;
+    actions.push_back(flash_action);
+}
+
+void animation_t::run()
+{
+    leds->clear();
+    for(action_t&action : actions )
+    {
+        action.run(leds,20);
+    }
+    std::list<action_t>::iterator action = actions.begin();
+    while (action != actions.end())
+    {
+        bool isDone = action->run(leds,20);
+        if (isDone)
+        {
+            actions.erase(action++);
+        }
+        else
+        {
+            ++action;
+        }
+    }
+}
+
+
+static void animation_timer_callback(void* arg);
 
 //static const uint8_t g_nb_led = 24;
 static const uint16_t g_nb_led = 256;
 
 WS2812 my_rgb(RGB_GPIO,g_nb_led);
 
-void timestamp_init()
+animation_t animation(&my_rgb);
+
+
+
+void timers_init()
 {
     esp_timer_create_args_t oneshot_timer_args;
     esp_timer_handle_t oneshot_timer;
     ESP_ERROR_CHECK(esp_timer_create(&oneshot_timer_args, &oneshot_timer));
     ESP_ERROR_CHECK(esp_timer_start_once(oneshot_timer, 31536000000000ull));//one year of microseconds
     ESP_LOGI(TAG, "timer> %lld us",esp_timer_get_time());
+
+    esp_timer_create_args_t periodic_timer_args;
+    periodic_timer_args.callback = &animation_timer_callback;
+    esp_timer_handle_t periodic_timer;
+    ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 20000));
+
 }
 
 int64_t g_time;
@@ -93,17 +201,16 @@ int64_t timestamp_stop()
     return (esp_timer_get_time() - g_time);
 }
 
-
-static void print_char_val_type(esp_adc_cal_value_t val_type)
+void delay_ms(int delay)
 {
-    if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP) {
-        ESP_LOGI(TAG, "Characterized using Two Point Value\n");
-    } else if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
-        ESP_LOGI(TAG, "Characterized using eFuse Vref\n");
-    } else {
-        ESP_LOGI(TAG, "Characterized using Default Vref\n");
-    }
+    vTaskDelay(delay / portTICK_PERIOD_MS);
 }
+
+static void animation_timer_callback(void* arg)
+{
+    animation.run();
+}
+
 
 void leds_set_all(uint8_t red,uint8_t green,uint8_t blue, bool show = true)
 {
@@ -232,12 +339,12 @@ void json_led_set_panel(const char * payload,int len)
     }
     else if(action.compare("flash") == 0)
     {
-        leds_set_all(0,0,0);
-        int duration_ms = root["duration_ms"];
-        uint8_t red = root["red"];
-        uint8_t green = root["green"];
-        uint8_t blue = root["blue"];
-
+        action_flash_t flash;
+        flash.duration_ms = root["duration_ms"];
+        flash.color.red = root["red"];
+        flash.color.green = root["green"];
+        flash.color.blue = root["blue"];
+        animation.add_flash(flash);
         ESP_LOGI(TAG, "MQTT-JSON> Panel Off");
     }
 }
@@ -381,19 +488,10 @@ void rgb_gpio_task(void *pvParameter)
     gpio_set_direction(BLUE_LED, GPIO_MODE_OUTPUT);
     while(1) {
         gpio_set_level(BLUE_LED, 1);
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        delay_ms(10);
         gpio_set_level(BLUE_LED, 0);
-        vTaskDelay(990 / portTICK_PERIOD_MS);
+        delay_ms(990);
     }
-}
-
-void show_pixels(uint8_t r,uint8_t g,uint8_t b)
-{
-    for(int i=0;i<g_nb_led;i++)
-    {
-        my_rgb.setPixel(i,r,g,b);    
-    }
-    my_rgb.show();
 }
 
 
@@ -402,21 +500,16 @@ void app_main()
 {
     ESP_LOGI(TAG, "[APP] Startup..");
 
-    timestamp_init();
+    timers_init();
 
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
     esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("MQTT_CLIENT", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_TCP", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT_SSL", ESP_LOG_VERBOSE);
-    esp_log_level_set("TRANSPORT", ESP_LOG_VERBOSE);
-    esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
-    show_pixels(0,1,0);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(0,0,0);
+    leds_set_all(0,1,0);
+    delay_ms(500);
+    leds_set_all(0,0,0);
 
     nvs_flash_init();
     wifi_init();
@@ -425,11 +518,11 @@ void app_main()
 
     mqtt_app_start();
 
-    show_pixels(1,0,0);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(0,1,0);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(0,0,1);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    show_pixels(0,0,0);
+    leds_set_all(1,0,0);
+    delay_ms(500);
+    leds_set_all(0,1,0);
+    delay_ms(500);
+    leds_set_all(0,0,1);
+    delay_ms(500);
+    leds_set_all(0,0,0);
 }

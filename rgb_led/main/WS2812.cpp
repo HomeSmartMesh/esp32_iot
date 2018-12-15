@@ -215,6 +215,16 @@ void WS2812::setPixel(uint16_t index, uint8_t red, uint8_t green, uint8_t blue) 
 } // setPixel
 
 
+void WS2812::add_to_all(uint8_t red, uint8_t green, uint8_t blue)
+{
+	for (uint16_t i = 0; i < this->pixelCount; i++) 
+	{
+		this->pixels[i].red   += red;
+		this->pixels[i].green += green;
+		this->pixels[i].blue  += blue;
+	}
+}
+
 /**
  * @brief Set the given pixel to the specified color.
  *
@@ -320,11 +330,7 @@ void WS2812::setHSBPixel(uint16_t index, uint16_t hue, uint8_t saturation, uint8
  * The LEDs are not actually updated until a call to show().
  */
 void WS2812::clear() {
-	for (uint16_t i = 0; i < this->pixelCount; i++) {
-		this->pixels[i].red   = 0;
-		this->pixels[i].green = 0;
-		this->pixels[i].blue  = 0;
-	}
+	memset(this->pixels,0,this->pixelCount*3);
 } // clear
 
 

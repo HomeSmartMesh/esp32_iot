@@ -52,6 +52,7 @@ public:
 	void show();
 	void setColorOrder(char* order);
 	void setPixel(uint16_t index, uint8_t red, uint8_t green, uint8_t blue);
+	void add_to_all(uint8_t red, uint8_t green, uint8_t blue);
 	void setPixel(uint16_t index, pixel_t pixel);
 	void setPixel(uint16_t index, uint32_t pixel);
 	void setHSBPixel(uint16_t index, uint16_t hue, uint8_t saturation, uint8_t brightness);

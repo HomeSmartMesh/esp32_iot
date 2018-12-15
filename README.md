@@ -33,3 +33,4 @@ list with a color for every led
 gradient of colors
     mosquitto_pub -t 'esp/curvy/pixels/grad' -m '{"led_start":0, "nb_leds":10, "col_start":{"r":0,"g":10,"b":0}, "col_stop":{"r":0,"g":0,"b":10}}'
 
+    mosquitto_pub -t 'esp/curvy/pixels/grad' -m '{"led_start":0, "nb_leds":256, "col_start":{"r":0,"g":10,"b":0}, "col_stop":{"r":0,"g":0,"b":10}}'
