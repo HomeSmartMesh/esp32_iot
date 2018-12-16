@@ -36,6 +36,7 @@ static const char* TOPIC_LIST           = "esp/curvy/pixels/list";
 static const char* TOPIC_GRAD           = "esp/curvy/pixels/grad";
 static const char* TOPIC_LINES_GRAD     = "esp/curvy/lines/grad";
 static const char* TOPIC_PANEL          = "esp/curvy/panel";
+static const char* TOPIC_BRIGHTNESS     = "esp/curvy/brightness";
 static const char* TOPIC_STATUS         = "esp/curvy/status";
 static const char* TOPIC_SUB            = "esp/curvy/#";
 
@@ -46,6 +47,7 @@ const static int CONNECTED_BIT = BIT0;
 
 esp_mqtt_client_handle_t g_client;
 bool is_client_ready = false;
+float g_brightness = 1.0;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
 const gpio_num_t RGB_GPIO=(gpio_num_t)13;
@@ -129,7 +131,7 @@ bool action_t::run(WS2812* leds,int delay_ms)
         case action_type_t::wave :
             {
                 float t = (float)progress_ms/1000;//time in seconds since start of animation
-                leds->add_wave(wave.color, t, wave.freq, wave.length);
+                leds->add_wave(wave.color, t, wave.freq, wave.length, g_brightness);
                 ESP_LOGD(TAG, "ANIMATION> wave time %0.2f",t);
             }
         break;
@@ -255,6 +257,7 @@ static void animation_timer_callback(void* arg)
 
 void leds_set_all(uint8_t red,uint8_t green,uint8_t blue, bool show = true)
 {
+    animation.kill();
     for(int i=0;i<g_nb_led;i++)
     {
         my_rgb.setPixel(i,red,green,blue);
@@ -267,6 +270,7 @@ void leds_set_all(uint8_t red,uint8_t green,uint8_t blue, bool show = true)
 
 void leds_set_gradient(int led_start,int nb_leds,grad_t grad, bool show = true)
 {
+    animation.kill();
     for(int i=led_start;i<(led_start + nb_leds);i++)
     {
         float coeff = (i-led_start);
@@ -292,6 +296,8 @@ void json_led_set_all(const char * payload,int len)
     uint8_t green = root["green"];
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
+
+    animation.kill();
     leds_set_all(red,green,blue);
 }
 
@@ -305,6 +311,7 @@ void json_led_set_one(const char * payload,int len)
     uint8_t blue = root["blue"];
     ESP_LOGI(TAG, "MQTT-JSON> rgb(%u , %u , %u)",red, green, blue);
 
+    animation.kill();
     my_rgb.setPixel(index,red,green,blue);
     my_rgb.show();
 }
@@ -321,11 +328,12 @@ void json_led_set_list(const char * payload,int len)
     int size = root["leds"].size();
     int nb_leds = size / 3;
     ESP_LOGI(TAG, "MQTT-JSON> size = %u",size);
+    animation.kill();
     for(int i=0;i<nb_leds;i++)
     {
-        uint8_t red = root["leds"][3*i];
-        uint8_t green = root["leds"][3*i+1];
-        uint8_t blue = root["leds"][3*i+2];
+        uint8_t red     = root["leds"][3*i];
+        uint8_t green   = root["leds"][3*i+1];
+        uint8_t blue    = root["leds"][3*i+2];
         my_rgb.setPixel(i,red,green,blue);
         ESP_LOGI(TAG, "MQTT-JSON> rgb[%u](%u , %u , %u)",i,red, green, blue);
     }
@@ -354,6 +362,20 @@ void json_led_set_grad(const char * payload,int len)
     grad.stop_blue   = root["col_stop"]["b"];
 
     leds_set_gradient(led_start, nb_leds, grad);
+}
+
+void led_set_brightness(const char * payload,int len)
+{
+    float brightness = atof(payload);
+    if((brightness > 0.01) && (brightness < 100))
+    {
+        g_brightness = brightness;
+        ESP_LOGI(TAG, "MQTT-JSON> brightness: %0.2f ", g_brightness);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "MQTT-JSON> brightness out of range: %f ", brightness);
+    }
 }
 
 void json_led_set_panel(const char * payload,int len)
@@ -458,6 +480,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             else if (match_and_call(event,TOPIC_ONE,  &json_led_set_one))     {}
             else if (match_and_call(event,TOPIC_GRAD, &json_led_set_grad))    {}
             else if (match_and_call(event,TOPIC_PANEL,&json_led_set_panel))   {}
+            else if (match_and_call(event,TOPIC_BRIGHTNESS,&led_set_brightness)) {}
             else
             {
                 ESP_LOGI(TAG, "MQTT> unhandled topic len=%d", event->topic_len);

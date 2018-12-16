@@ -54,3 +54,7 @@ mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":2000,"fre
 ### higher waves
 mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"freq":1,"length":32,"r":0,"g":180,"b":0}'
 mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"freq":-1,"length":32,"r":0,"g":0,"b":255}'
+
+# brightness
+
+    mosquitto_pub -t 'esp/curvy/brightness' -m '2'

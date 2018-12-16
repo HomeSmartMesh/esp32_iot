@@ -53,7 +53,7 @@ public:
 	void setColorOrder(char* order);
 	void setPixel(uint16_t index, uint8_t red, uint8_t green, uint8_t blue);
 	void add_const(uint8_t red, uint8_t green, uint8_t blue);
-	void add_wave(pixel_t color, float t, float freq, int length);
+	void add_wave(pixel_t color, float t, float freq, int length,float brightness = 1.0);
 	void setPixel(uint16_t index, pixel_t pixel);
 	void setPixel(uint16_t index, uint32_t pixel);
 	void setHSBPixel(uint16_t index, uint16_t hue, uint8_t saturation, uint8_t brightness);

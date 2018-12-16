@@ -243,16 +243,16 @@ void WS2812::add_const(uint8_t red, uint8_t green, uint8_t blue)
 	}
 }
 
-void WS2812::add_wave(pixel_t color, float t, float freq, int length)
+void WS2812::add_wave(pixel_t color, float t, float freq, int length,float brightness)
 {
 	uint16_t nb_lines = this->pixelCount / this->lineCount;
 	for (uint16_t line = 0; line < nb_lines; line++) 
 	{
 		float x =  (float)line / (float)length;
-		float intensity = (1+sin(	PI_x2 * 
-									( x - (freq * t) )
-								)
-							)/2;
+		float intensity = brightness * (1+sin(	PI_x2 * 
+											( x - (freq * t) )
+										)
+									)/2;
 		uint8_t r = color.red 	* intensity;
 		uint8_t g = color.green * intensity;
 		uint8_t b = color.blue 	* intensity;
