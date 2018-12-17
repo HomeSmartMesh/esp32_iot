@@ -249,19 +249,39 @@ void WS2812::add_wave(pixel_t color, float t, float freq, int length,float brigh
 	for (uint16_t line = 0; line < nb_lines; line++) 
 	{
 		float x =  (float)line / (float)length;
+		float freq_x_time = freq * t;
 		float intensity = brightness * (1+sin(	PI_x2 * 
-											( x - (freq * t) )
+											( x - freq_x_time )
 										)
 									)/2;
 		uint8_t r = color.red 	* intensity;
 		uint8_t g = color.green * intensity;
 		uint8_t b = color.blue 	* intensity;
-		for(uint16_t i=0; i<this->lineCount; i++)
-		{
-			add_sat(this->pixels[line*8 + i].red,r);
-			add_sat(this->pixels[line*8 + i].green,g);
-			add_sat(this->pixels[line*8 + i].blue ,b);
-		}
+		//sin is at its minimum from -Pi/2 => -0.25 till 3Pi/2 => 0.75
+		/*
+		float div_2 = freq_x_time / 2;
+		float mod = freq_x_time - trunc(div_2) * 2;
+		if	(	( (x - mod) > -0.25 ) &&
+				( (x - mod) < 0.75 )
+			)
+		*/
+		float wavelet = x - freq_x_time + 0.25;
+		float div_2 = wavelet / 2;
+		float mod = wavelet - trunc(div_2) * 2;
+		if	(	( (mod) > 0 ) &&
+				( (mod) < 1 )
+			)
+/*		if	(	( (x - freq_x_time) > -0.25 ) &&
+				( (x - freq_x_time) < 0.75 )
+			)*/
+			{
+				for(uint16_t i=0; i<this->lineCount; i++)
+				{
+					add_sat(this->pixels[line*8 + i].red,r);
+					add_sat(this->pixels[line*8 + i].green,g);
+					add_sat(this->pixels[line*8 + i].blue ,b);
+				}
+			}
 	}
 }
 
