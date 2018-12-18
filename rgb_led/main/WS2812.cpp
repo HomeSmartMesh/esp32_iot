@@ -257,31 +257,52 @@ void WS2812::add_wave(pixel_t color, float t, float freq, int length,float brigh
 		uint8_t r = color.red 	* intensity;
 		uint8_t g = color.green * intensity;
 		uint8_t b = color.blue 	* intensity;
-		//sin is at its minimum from -Pi/2 => -0.25 till 3Pi/2 => 0.75
-		/*
-		float div_2 = freq_x_time / 2;
-		float mod = freq_x_time - trunc(div_2) * 2;
-		if	(	( (x - mod) > -0.25 ) &&
-				( (x - mod) < 0.75 )
-			)
-		*/
-		float wavelet = x - freq_x_time + 0.25;
-		float div_2 = wavelet / 2;
-		float mod = wavelet - trunc(div_2) * 2;
-		if	(	( (mod) > 0 ) &&
-				( (mod) < 1 )
-			)
-/*		if	(	( (x - freq_x_time) > -0.25 ) &&
-				( (x - freq_x_time) < 0.75 )
-			)*/
+		for(uint16_t i=0; i<this->lineCount; i++)
+		{
+			add_sat(this->pixels[line*8 + i].red,r);
+			add_sat(this->pixels[line*8 + i].green,g);
+			add_sat(this->pixels[line*8 + i].blue ,b);
+		}
+	}
+}
+
+void WS2812::add_wavelet(pixel_t color, float t, float freq, int length,float brightness)
+{
+	uint16_t nb_lines = this->pixelCount / this->lineCount;
+	for (uint16_t line = 0; line < nb_lines; line++) 
+	{
+		float x =  (float)line / (float)length;
+		float panel_travel_time =  (float)nb_lines / ((float)length * freq);
+		t = fmod(t,panel_travel_time);//e.g. 2 sec for f:1 - length:16 ; lineCount:32
+		float freq_x_time = freq * t;
+		float intensity = brightness * (1+sin(	PI_x2 * 
+											( x - freq_x_time )
+										)
+									)/2;
+		uint8_t r = color.red 	* intensity;
+		uint8_t g = color.green * intensity;
+		uint8_t b = color.blue 	* intensity;
+		bool is_selected_wave_region = false;
+		if(freq < 0)	//then the wavelet must pop out of the other side
+		{
+			float panel_ratio =  (float)nb_lines / (float)length;
+			is_selected_wave_region =	( 	(x - freq_x_time) > (-0.25 + panel_ratio )  ) &&   
+										( (x - freq_x_time) < (0.75 + panel_ratio ) 	);
+		}
+		else
+		{
+			is_selected_wave_region = ( (x - freq_x_time) > -0.25 )   &&   ( (x - freq_x_time) < 0.75 );
+		}
+		//only if wavelet, then : sin is at its minimum from -Pi/2 => -0.25 till 3Pi/2 => 0.75
+		if(is_selected_wave_region)
+		{
+			for(uint16_t i=0; i<this->lineCount; i++)
 			{
-				for(uint16_t i=0; i<this->lineCount; i++)
-				{
-					add_sat(this->pixels[line*8 + i].red,r);
-					add_sat(this->pixels[line*8 + i].green,g);
-					add_sat(this->pixels[line*8 + i].blue ,b);
-				}
+				add_sat(this->pixels[line*8 + i].red,r);
+				add_sat(this->pixels[line*8 + i].green,g);
+				add_sat(this->pixels[line*8 + i].blue ,b);
 			}
+		}
 	}
 }
 

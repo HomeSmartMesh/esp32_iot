@@ -69,6 +69,7 @@ struct action_wave_t{
     pixel_t color;
     int     length;
     float   freq;
+    bool    is_wavelet;
 };
 
 enum class action_type_t { flash, wave, wavelet };
@@ -131,7 +132,14 @@ bool action_t::run(WS2812* leds,int delay_ms)
         case action_type_t::wave :
             {
                 float t = (float)progress_ms/1000;//time in seconds since start of animation
-                leds->add_wave(wave.color, t, wave.freq, wave.length, g_brightness);
+                if(wave.is_wavelet)
+                {
+                    leds->add_wavelet(wave.color, t, wave.freq, wave.length, g_brightness);
+                }
+                else
+                {
+                    leds->add_wave(wave.color, t, wave.freq, wave.length, g_brightness);
+                }
                 ESP_LOGD(TAG, "ANIMATION> wave time %0.2f",t);
             }
         break;
@@ -387,7 +395,8 @@ void json_led_set_panel(const char * payload,int len)
         ESP_LOGE(TAG, "MQTT-JSON> Parsing error");
         return;
     }
-
+    bool do_wave = false;
+    bool is_wavelet = false;
     std::string action = root["action"].as<std::string>();
     if(action.compare("off") == 0)
     {
@@ -413,10 +422,20 @@ void json_led_set_panel(const char * payload,int len)
     }
     else if(action.compare("wave") == 0)
     {
+        do_wave = true;
+    }
+    else if(action.compare("wavelet") == 0)
+    {
+        do_wave = true;
+        is_wavelet = true;
+    }
+    if(do_wave)
+    {
         action_wave_t wave;
         int duration_ms = root["duration_ms"];
         wave.length = root["length"];
         wave.freq   = root["freq"];
+        wave.is_wavelet = is_wavelet;
         wave.color.red = root["r"];
         wave.color.green = root["g"];
         wave.color.blue = root["b"];
