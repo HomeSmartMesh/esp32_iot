@@ -4,6 +4,7 @@
 #include <string.h>
 #include <list>
 #include <stdlib.h>
+#include <math.h>
 #include "esp_wifi.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -83,6 +84,7 @@ struct action_flame_t{
     int     length;
     float   freq;
     int     random;
+    int     nb_leds;
 };
 
 enum class action_type_t { flash, wave, wavelet, flame };
@@ -129,6 +131,83 @@ float flash_progress_to_intensity(int progress_ms,int duration_ms)
     return 2*pos;//so that 0.5 => 1
 }
 
+void simple_fire(WS2812* leds,action_flame_t &flame)
+{
+    //  Flicker, based on our initial RGB values
+    for(int i=0; i<g_nb_led; i++) 
+    {
+        int flicker = rand() % flame.random;
+        int r1 = flame.color.red-flicker;
+        int g1 = flame.color.green-flicker;
+        int b1 = flame.color.blue-flicker;
+        if(g1<0) g1=0;
+        if(r1<0) r1=0;
+        if(b1<0) b1=0;
+        leds->setPixel(i,r1,g1, b1);
+    }
+}
+
+//https://www.tweaking4all.com/hardware/arduino/adruino-led-strip-effects/#LEDStripEffectFire
+void t4all_fire(WS2812* leds,action_flame_t &flame)
+{
+    int Cooling = 55;
+    int Sparking = 120;
+    int SpeedDelay = 15;
+    static uint8_t heat[g_nb_led];//max nb leds is g_nb_leds
+    int cooldown;
+
+    // Step 1.  Cool down every cell a little
+    for( int i = 0; i < flame.nb_leds; i++)
+    {
+        cooldown = rand() % (((Cooling * 10) / flame.nb_leds) + 2);
+
+        if(cooldown>heat[i]) 
+        {
+            heat[i]=0;
+        }
+        else
+        {
+            heat[i]=heat[i]-cooldown;
+        }
+    }
+
+    // Step 2.  Heat from each cell drifts 'up' and diffuses a little
+    for( int k= flame.nb_leds - 1; k >= 2; k--)
+    {
+        heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
+    }
+
+    // Step 3.  Randomly ignite new 'sparks' near the bottom
+    if( (rand()%255) < Sparking )
+    {
+        int y = (rand()%7);
+        heat[y] = heat[y] + 160+(rand() % (255-160));
+        //heat[y] = random(160,255);
+    }
+
+    // Step 4.  Convert heat to LED colors
+    for( int j = 0; j < flame.nb_leds; j++)
+    {
+        uint8_t temperature = heat[j];
+        int Pixel = j;
+        // Scale 'heat' down from 0-255 to 0-191
+        uint8_t t192 = round((temperature/255.0)*191);
+
+        // calculate ramp up from
+        uint8_t heatramp = t192 & 0x3F; // 0..63
+        heatramp <<= 2; // scale up to 0..252
+
+        // figure out which third of the spectrum we're in:
+        if( t192 > 0x80) {                     // hottest
+        leds->setPixel(Pixel, flame.color.red, flame.color.green, heatramp);
+        } else if( t192 > 0x40 ) {             // middle
+        leds->setPixel(Pixel, flame.color.red, heatramp, flame.color.blue);
+        } else {                               // coolest
+        leds->setPixel(Pixel, heatramp, flame.color.green, flame.color.blue);
+        }
+    }
+}
+
 bool action_t::run(WS2812* leds,int delay_ms)
 {
     bool done = false;
@@ -160,18 +239,8 @@ bool action_t::run(WS2812* leds,int delay_ms)
         break;
         case action_type_t::flame :
             {
-                //  Flicker, based on our initial RGB values
-                for(int i=0; i<g_nb_led; i++) 
-                {
-                    int flicker = rand() % flame.random;
-                    int r1 = flame.color.red-flicker;
-                    int g1 = flame.color.green-flicker;
-                    int b1 = flame.color.blue-flicker;
-                    if(g1<0) g1=0;
-                    if(r1<0) r1=0;
-                    if(b1<0) b1=0;
-                    leds->setPixel(i,r1,g1, b1);
-                }
+                //simple_fire(leds,flame);
+                t4all_fire(leds,flame);
             }
         break;
         default:
@@ -442,6 +511,7 @@ void led_test_flame(const char * payload,int len)
     flame.color.green = root["g"];
     flame.color.blue = root["b"];
     flame.random = root["random"];
+    flame.nb_leds = root["nb_leds"];
     animation.add_flame(flame,duration_ms);
     ESP_ERROR_CHECK(esp_timer_stop(periodic_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, period));
@@ -641,7 +711,7 @@ void app_main()
 {
     ESP_LOGI(TAG, "[APP] Startup..");
 
-    ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "[APP] Free memory: %d uint8_ts", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
 
     esp_log_level_set("*", ESP_LOG_INFO);

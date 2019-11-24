@@ -63,3 +63,5 @@ mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"fr
 
     mosquitto_pub -t 'esp/curvy/flame' -m 'burn'
     mosquitto_pub -t 'esp/curvy/flame' -m '{"r":226, "g":121, "b":35, "random":55, "period":20000, "duration_ms":5000}'
+
+    mosquitto_pub -t 'esp/curvy/flame' -m '{"r":226, "g":121, "b":35, "random":50, "nb_leds":60, "period":15000, "duration_ms":10000}'
