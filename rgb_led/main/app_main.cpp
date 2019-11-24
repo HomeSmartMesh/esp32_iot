@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <list>
+#include <stdlib.h>
 #include "esp_wifi.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -38,9 +39,11 @@ static const char* TOPIC_LINES_GRAD     = "esp/curvy/lines/grad";
 static const char* TOPIC_PANEL          = "esp/curvy/panel";
 static const char* TOPIC_BRIGHTNESS     = "esp/curvy/brightness";
 static const char* TOPIC_STATUS         = "esp/curvy/status";
+static const char* TOPIC_FLAME         = "esp/curvy/flame";
 static const char* TOPIC_SUB            = "esp/curvy/#";
 
 
+esp_timer_handle_t periodic_timer;
 
 static EventGroupHandle_t wifi_event_group;
 const static int CONNECTED_BIT = BIT0;
@@ -51,6 +54,9 @@ float g_brightness = 1.0;
 
 const gpio_num_t BLUE_LED=(gpio_num_t)2;
 const gpio_num_t RGB_GPIO=(gpio_num_t)13;
+
+//static const uint8_t g_nb_led = 24;
+static const uint16_t g_nb_led = 256;
 
 struct grad_t{
     uint8_t start_red   ;
@@ -72,7 +78,14 @@ struct action_wave_t{
     bool    is_wavelet;
 };
 
-enum class action_type_t { flash, wave, wavelet };
+struct action_flame_t{
+    pixel_t color;
+    int     length;
+    float   freq;
+    int     random;
+};
+
+enum class action_type_t { flash, wave, wavelet, flame };
 
 class action_t{
     public:
@@ -85,6 +98,7 @@ class action_t{
         union{
             action_flash_t flash;
             action_wave_t wave;
+            action_flame_t flame;
         };
 };
 
@@ -96,6 +110,7 @@ class animation_t{
         void add_flash(action_flash_t &v_flash,int v_duration_ms);
         void add_wave(action_wave_t &v_wave,int v_duration_ms);
         void add_wavelet(action_wave_t &v_wavelet,int v_duration_ms);
+        void add_flame(action_flame_t &v_flame,int v_duration_ms);
     public:
         bool enabled;
         WS2812* leds;
@@ -143,6 +158,22 @@ bool action_t::run(WS2812* leds,int delay_ms)
                 ESP_LOGD(TAG, "ANIMATION> wave time %0.2f",t);
             }
         break;
+        case action_type_t::flame :
+            {
+                //  Flicker, based on our initial RGB values
+                for(int i=0; i<g_nb_led; i++) 
+                {
+                    int flicker = rand() % flame.random;
+                    int r1 = flame.color.red-flicker;
+                    int g1 = flame.color.green-flicker;
+                    int b1 = flame.color.blue-flicker;
+                    if(g1<0) g1=0;
+                    if(r1<0) r1=0;
+                    if(b1<0) b1=0;
+                    leds->setPixel(i,r1,g1, b1);
+                }
+            }
+        break;
         default:
         break;
     }
@@ -177,6 +208,17 @@ void animation_t::add_wave(action_wave_t &v_wave,int v_duration_ms)
     wave_action.duration_ms = v_duration_ms;
     wave_action.wave = v_wave;
     actions.push_back(wave_action);
+    enabled = true;
+}
+
+void animation_t::add_flame(action_flame_t &v_flame,int v_duration_ms)
+{
+    action_t flame_action;
+    flame_action.a_type = action_type_t::flame;
+    flame_action.progress_ms = 0;
+    flame_action.duration_ms = v_duration_ms;
+    flame_action.flame = v_flame;
+    actions.push_back(flame_action);
     enabled = true;
 }
 
@@ -215,9 +257,6 @@ void animation_t::run()
 
 static void animation_timer_callback(void* arg);
 
-//static const uint8_t g_nb_led = 24;
-static const uint16_t g_nb_led = 256;
-
 WS2812 my_rgb(RGB_GPIO,g_nb_led,8);
 
 animation_t animation(&my_rgb);
@@ -234,7 +273,6 @@ void timers_init()
 
     esp_timer_create_args_t periodic_timer_args;
     periodic_timer_args.callback = &animation_timer_callback;
-    esp_timer_handle_t periodic_timer;
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 20000));
 
@@ -386,6 +424,29 @@ void led_set_brightness(const char * payload,int len)
     }
 }
 
+void led_test_flame(const char * payload,int len)
+{
+    ArduinoJson::StaticJsonBuffer<600> jsonBuffer;
+    ArduinoJson::JsonObject& root = jsonBuffer.parseObject(payload);
+    if (!root.success()) 
+    {
+        ESP_LOGE(TAG, "MQTT-JSON> Parsing error");
+        return;
+    }
+    animation.kill();
+
+    action_flame_t flame;
+    int duration_ms = root["duration_ms"];
+    int period = root["period"];
+    flame.color.red = root["r"];
+    flame.color.green = root["g"];
+    flame.color.blue = root["b"];
+    flame.random = root["random"];
+    animation.add_flame(flame,duration_ms);
+    ESP_ERROR_CHECK(esp_timer_stop(periodic_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, period));
+}
+
 void json_led_set_panel(const char * payload,int len)
 {
     ArduinoJson::StaticJsonBuffer<600> jsonBuffer;
@@ -500,6 +561,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             else if (match_and_call(event,TOPIC_GRAD, &json_led_set_grad))    {}
             else if (match_and_call(event,TOPIC_PANEL,&json_led_set_panel))   {}
             else if (match_and_call(event,TOPIC_BRIGHTNESS,&led_set_brightness)) {}
+            else if (match_and_call(event,TOPIC_FLAME,&led_test_flame)) {}
             else
             {
                 ESP_LOGI(TAG, "MQTT> unhandled topic len=%d", event->topic_len);

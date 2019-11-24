@@ -24,7 +24,7 @@ one indexed led access
 
     mosquitto_pub -t 'esp/curvy/pixels/one' -m '{"index":0,"red":0,"green":20,"blue":30}'
 ## list
-list with a color for every led
+list with a color for every led in raw : [r0,g0,b0,r1,g1,b1,...]
 
 570 bytes buffer required instead of 1080 for multiple r,g,b json objects
 
@@ -58,3 +58,8 @@ mosquitto_pub -t 'esp/curvy/panel' -m '{"action":"wave", "duration_ms":10000,"fr
 # brightness
 
     mosquitto_pub -t 'esp/curvy/brightness' -m '2'
+
+# flame
+
+    mosquitto_pub -t 'esp/curvy/flame' -m 'burn'
+    mosquitto_pub -t 'esp/curvy/flame' -m '{"r":226, "g":121, "b":35, "random":55, "period":20000, "duration_ms":5000}'
